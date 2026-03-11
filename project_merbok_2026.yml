@@ -1,0 +1,92 @@
+name: project_merbok_2026_full
+channels:
+  - conda-forge
+
+variables:
+  LD_LIBRARY_PATH: ""                 # prevent system CUDA/cuDNN from shadowing TF's bundled libs
+  TF_FORCE_GPU_ALLOW_GROWTH: "true"   # optional: avoid full VRAM preallocation
+  TF_CPP_MIN_LOG_LEVEL: "2"           # quiet non-critical TF logs
+
+dependencies:
+  # ---- Core runtime ----
+  - python=3.11
+  - pip
+  - wheel
+  - setuptools>=68,<82
+
+  # ---- Geospatial foundations ----
+  - gdal
+  - libgdal
+  - rasterio
+  - rioxarray
+  - fiona
+  - pyproj
+  - geopandas
+  - shapely
+  - proj
+  - cartopy
+  - pyogrio
+
+  # ---- Formats & scientific I/O ----
+  - hdf5
+  - netcdf4
+  - xarray
+  - pyarrow
+  - pandas
+  - numpy
+  - scipy
+
+  # ---- Visualization / notebooks ----
+  - matplotlib
+  - ipykernel
+  - jupyterlab
+  - bokeh
+  - panel
+  - holoviews
+  - plotly
+  - folium
+  - ipyleaflet
+  - ipywidgets
+  - matplotlib-scalebar
+
+  # ---- Imaging / ML utilities ----
+  - scikit-image
+  - scikit-learn
+
+  # ---- STAC / tiling / COG tools ----
+  - rio-tiler
+  - rio-cogeo
+  - localtileserver
+  - leafmap>=0.60
+  - contextily
+
+  # ---- Co-registration & utilities ----
+  - arosics
+  - kneed
+  - line_profiler
+
+  # ---- Earth Engine & CoastSat ----
+  - earthengine-api
+  - coastsat-package
+
+  # ---- Web deps (prevent RequestsDependencyWarning) ----
+  - requests=2.32.5
+  - urllib3=2.6.*
+  - charset-normalizer=3.4.*
+  - chardet<6
+
+  - pip:
+      # Transformers with TF SegFormer and stable TF build behavior
+      - transformers==4.56.2
+      # Compatible wheel that exists on PyPI for Linux x86_64 + Python 3.11
+      - tokenizers==0.22.2
+      # Keep hub in a broad, compatible range
+      - "huggingface_hub>=0.22,<2"
+
+      # TensorFlow GPU wheel (bundles CUDA 12.x + cuDNN; needs recent NVIDIA driver only)
+      - tensorflow[and-cuda]==2.15.1
+      - tf-keras==2.15.1
+
+      # CoastSeg + Doodleverse
+      - coastseg
+      - doodleverse_utils

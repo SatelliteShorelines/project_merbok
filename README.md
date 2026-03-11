@@ -1,2 +1,3 @@
-# project_merbok
-Batch processing code for mapping satellite-derived shorelines in Alaska
+# MerbokCode
+
+This will contain code to generate SDS data for Alaska.
