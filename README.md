@@ -8,7 +8,7 @@ Setup:
 
 2) Create conda environment
 
-```conda env create -f project_merbok_full.yaml```
+```conda env create -f project_merbok_2026.yaml```
 
 3) Setup shoreline sections (GCRRSSS) with reference shorelines and reference polygons.
 
