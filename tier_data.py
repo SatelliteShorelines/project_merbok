@@ -1934,41 +1934,41 @@ Tier3
                 SSS
                     xxx.geojson
 """
-g = '1'
-c = '4'
-rrs = ['00', '01', '02', '03']
-home = os.path.join('/', 'mnt', 'f', 'SDSDataService_b')
-print('tiering data')
-for rr in tqdm(rrs):
-    print(rr)
-    r_home_analysis = os.path.join('/', 'mnt', 'hdd_6tb', 'Alaska_Analysis_Images', 'G'+g, 'C'+c, 'RR'+rr)
-    r_home_data_service = os.path.join('/', 'mnt', 'f', 'SDSDataService_a', 'G'+g, 'C'+c, 'RR'+rr)
-    try:
-        os.makedirs(r_home_data_service)
-    except:
-        pass
-    sections = sorted(get_immediate_subdirectories(r_home_analysis))
-    print(sections)
-    for section in tqdm(sections):
-        print(section)
-        sss = section[3:]
-        tier_last_section(g, c, rr, sss, r_home_analysis, r_home_data_service)
-        tier_first_section(g, c, rr, sss, home, r_home_analysis)
+# g = '1'
+# c = '4'
+# rrs = ['00', '01', '02', '03']
+# home = os.path.join('/', 'mnt', 'f', 'SDSDataService_b')
+# print('tiering data')
+# for rr in tqdm(rrs):
+#     print(rr)
+#     r_home_analysis = os.path.join('/', 'mnt', 'hdd_6tb', 'Alaska_Analysis_Images', 'G'+g, 'C'+c, 'RR'+rr)
+#     r_home_data_service = os.path.join('/', 'mnt', 'f', 'SDSDataService_a', 'G'+g, 'C'+c, 'RR'+rr)
+#     try:
+#         os.makedirs(r_home_data_service)
+#     except:
+#         pass
+#     sections = sorted(get_immediate_subdirectories(r_home_analysis))
+#     print(sections)
+#     for section in tqdm(sections):
+#         print(section)
+#         sss = section[3:]
+#         tier_last_section(g, c, rr, sss, r_home_analysis, r_home_data_service)
+#         tier_first_section(g, c, rr, sss, home, r_home_analysis)
 
 
 
-"""
-Here we are concacenating geojsons and then writing to geopackage layers
-GC_index.gpkg
-GC_tier_0.gpkg
-GC_tier_1.gpkg
-GC_tier_2.gpkg
-GC_tier_3.gpkg
-"""
-g = '1'
-c = '4'
-rrs = ['00', '01', '02', '03']
-home_data_service = os.path.join('/', 'mnt', 'f', 'SDSDataService_b')
-home_geopackage = os.path.join('/', 'mnt', 'f', 'SDSDataService_c')
-tier_to_gpkg(g, c, rrs, home_data_service, home_geopackage, ['index', 'tier_0', 'tier_1', 'tier_2', 'tier_3'])
+# """
+# Here we are concacenating geojsons and then writing to geopackage layers
+# GC_index.gpkg
+# GC_tier_0.gpkg
+# GC_tier_1.gpkg
+# GC_tier_2.gpkg
+# GC_tier_3.gpkg
+# """
+# g = '1'
+# c = '4'
+# rrs = ['00', '01', '02', '03']
+# home_data_service = os.path.join('/', 'mnt', 'f', 'SDSDataService_b')
+# home_geopackage = os.path.join('/', 'mnt', 'f', 'SDSDataService_c')
+# tier_to_gpkg(g, c, rrs, home_data_service, home_geopackage, ['index', 'tier_0', 'tier_1', 'tier_2', 'tier_3'])
 
