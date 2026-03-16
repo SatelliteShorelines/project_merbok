@@ -41,7 +41,7 @@ This will contain the following files:
 * elevation_profiles_ (pngs and csvs of elevation profiles with estimated foreshore slopes)
 * elevation_profile_lines_ (geojsons of elevation contours)
 * ms_tiff_paths/L5/pansharpened/coregistered (pansharpened and coregistered L5 imagery)
-* ms_tiff_paths/L7/pansharpened (pansharpend L7 imagery)
+* ms_tiff_paths/L7/pansharpened (pansharpened L7 imagery)
 * ms_tiff_paths/L8/pansharpened/coregistered (pansharpened and coregistered L8 imagery)
 * ms_tiff_paths/L9/pansharpened/coregistered (pansharpened and coregistered L9 imagery)
 * ms_tiff_paths/S2/pansharpened/coregistered (pansharpened and coregistered S2 imagery)
