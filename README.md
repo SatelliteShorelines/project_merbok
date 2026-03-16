@@ -25,9 +25,13 @@ Subregion RR00 (Beaufort Sea coast)
 Example processed Shoreline Section 1400000 (first section at Canadian border)
 
 root
+
 ----G1
+
 ------C4
+
 --------RR00
+
 ------------SSS000
 
 This will contain the following files:
