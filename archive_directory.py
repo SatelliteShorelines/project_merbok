@@ -56,30 +56,30 @@ def compress_and_remove_directory(source_directory):
 
 
 
-"""
-Use this to archive directories to free up space.
-"""
-g='1'
-c='4'
-rrs = ['00', '01', '02', '03']
-for rr in rrs:
-    r_home = os.path.join('/', 'mnt', 'hdd_6tb', 'Alaska_Analysis_Images', 'G'+g, 'C'+c, 'RR'+rr)
-    sections = sorted(get_immediate_subdirectories(r_home))
-    for section in sections:
-        print(rr)
-        print(section)
-        compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'L5'))
-        compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'L7'))
-        compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'L8'))
-        compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'L9'))
-        compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'S2'))
-        compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'PS'))
-        compress_and_remove_directory(os.path.join(r_home, section, 'DEMs'))
-        compress_and_remove_directory(os.path.join(r_home, section, 'elevation_profiles_'))
-        compress_and_remove_directory(os.path.join(r_home, section, 'elevation_profiles_AlaskaDSM'))
-        compress_and_remove_directory(os.path.join(r_home, section, 'elevation_profiles_TBDEM'))
-        #compress_and_remove_directory(os.path.join(r_home, section, 'ensemble_timeseries_csvs'))
-        #compress_and_remove_directory(os.path.join(r_home, section, 'final_timeseries'))
+# """
+# Use this to archive directories to free up space.
+# """
+# g='1'
+# c='4'
+# rrs = ['00', '01', '02', '03']
+# for rr in rrs:
+#     r_home = os.path.join('/', 'mnt', 'hdd_6tb', 'Alaska_Analysis_Images', 'G'+g, 'C'+c, 'RR'+rr)
+#     sections = sorted(get_immediate_subdirectories(r_home))
+#     for section in sections:
+#         print(rr)
+#         print(section)
+#         compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'L5'))
+#         compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'L7'))
+#         compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'L8'))
+#         compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'L9'))
+#         compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'S2'))
+#         compress_and_remove_directory(os.path.join(r_home, section, 'ms_tiff_paths', 'PS'))
+#         compress_and_remove_directory(os.path.join(r_home, section, 'DEMs'))
+#         compress_and_remove_directory(os.path.join(r_home, section, 'elevation_profiles_'))
+#         compress_and_remove_directory(os.path.join(r_home, section, 'elevation_profiles_AlaskaDSM'))
+#         compress_and_remove_directory(os.path.join(r_home, section, 'elevation_profiles_TBDEM'))
+#         compress_and_remove_directory(os.path.join(r_home, section, 'ensemble_timeseries_csvs'))
+#         compress_and_remove_directory(os.path.join(r_home, section, 'final_timeseries'))
 
 
 
