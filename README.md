@@ -14,7 +14,7 @@ Setup:
 
 Directory structure 
 
-Shown below is an the example for a shoreline section from:
+Shown below is an example for a shoreline section from:
 
 Global Region G1 (US)
 
