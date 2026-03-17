@@ -265,7 +265,7 @@ def rearrange_coastseg_data_section(g, c, rr, sss, r_home, sorted_alaska_home, s
             image = sat_image_list_df['ms_tiff_path'].iloc[i]
             satname = sat_image_list_df['satnames'].iloc[i]
             if planet==False:
-                sorted_alaska_home = sorted_alaksa_home
+                sorted_alaska_home = sorted_alaska_home
             else:
                 sorted_alaska_home = sorted_planet_home
             coastseg_dir = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(image))))
@@ -1961,7 +1961,6 @@ def spatial_kde_section(g, c, rr, sss, r_home):
                                         gpd.read_file(extracted_shorelines_swir_path)])
         shoreline_change_envelope.point_density_grid(shorelines_concat, 
                                                      kde_path,
-                                                     crs,
                                                      15)
     if os.path.isfile(kde_path)==True:
         shoreline_change_envelope.compute_otsu_threshold(kde_path, otsu_path)
