@@ -12,7 +12,7 @@ Setup:
 
 3) Setup shoreline sections (GCRRSSS) with reference shorelines and reference polygons.
 
-Directory strucure 
+Directory structure 
 
 Shown below is an the example for a shoreline section from:
 
