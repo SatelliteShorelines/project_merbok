@@ -96,7 +96,7 @@ This will contain the following files:
 
 General Workflow:
 
-0. Set up WSL and miniforge and the conda environment necessary to run this software. This can be challenging as dependencies change with time and individual computer hardware differs. LLMs can be very helpful when troubleshooting at this stage. My process is to request a conda .yaml environment file that finds compatible versions of each package I want to work together. I then make the conda environment and test that every libary can load and that tensorflow can see GPUs. If the machine I am working on gets errors, I give that complete error message to the LLM and prompt it to provide a new conda environment solution. My experience is that at first the LLM will try to offer ad hoc solutions. Push back on these ad hoc solutions. With persistence, a path to a working environment can usually be solved. 
+0. Set up WSL and miniforge and the conda environment necessary to run this software. This can be challenging as dependencies change with time and individual computer hardware differs. LLMs can be very helpful when troubleshooting at this stage. My process is to request a conda .yaml environment file that finds compatible versions of each package I want to work together. I then make the conda environment and test that every library can load and that tensorflow can see GPUs. If the machine I am working on gets errors, I give that complete error message to the LLM and prompt it to provide a new conda environment solution. My experience is that at first the LLM will try to offer ad hoc solutions. Push back on these ad hoc solutions. With persistence, a path to a working environment can usually be solved. 
 
 1. Manually create a reference shoreline and a reference polygon. This should be a single feature for a shoreline section in WGS84. Using alternative coordinate systems (UTM, state plane, etc.) will not work with this software. If a large area is to be mapped, make sure the direction of each reference shoreline is consistent. Otherwise later on when analyzing data from the transects you will have trouble if the indexing/order of transects switches back and forth to each shoreline section. Just make this in a GIS with a satellite imagery basemap. There are automated ways to make the reference polygon (using the spatial density of unfiltered points from a shoreline mapping run or from applying a buffer to the reference shoreline). Otherwise, make it manually. Use site-specific knowledge to design this intelligently. Cycle through the Google Earth timelapse to see quickly what the coast has been doing in that section. Or download some satellite images and use that to guide how you draw the polygon. 
 
@@ -112,7 +112,7 @@ General Workflow:
 
 7. Apply pansharpening and coregistration. Landsat 7 and Planet imagery are not coregistered with this software. The effects of these two alogirthms bring subtle improvements. 
 
-8. Apply segmentation models and thresholding on the tiffs.
+8. Apply segmentation models and thresholding on the tiffs. These get saved as two class (water and land) bands to the tiffs. The 4-class segmentations get saved to pngs.
 
 9. Apply segmentation suitability model on 4-class segmentation pngs. This model has limited effectiveness from large-scale application in Alaska, but was useful in the beginning before better filtering methods evolved.
 
@@ -124,7 +124,7 @@ General Workflow:
 
 13. Take a loot at qc_code for some functions made to check all of the data that was generated.
 
-14. Use composite_analysis.py to create composite tiffs on an annual or decadal basis. These reduce the imagery density and remove much of the noise in the instantaneous images, making them easier to interpret as well as analyze for planform changes. Thresholding on the NIR/SWIR bands will work well on these.
+14. Use composite_analysis.py to create composite tiffs on an annual or decadal basis. These reduce the imagery density and remove much of the noise in the instantaneous images, making them easier to interpret as well as analyze for planform changes. Thresholding on the NIR/SWIR bands will work well on these. example (makes decadal composites 1980s, 1990s, 2000s, 2010s, 2020s for 1400000) ```composite_analysis.py -g 1 -c 4 -rr 00 -sss 059 -i decadal -is 0.335``` 
 
 Some notes:
 
