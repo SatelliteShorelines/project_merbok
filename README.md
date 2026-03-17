@@ -122,7 +122,7 @@ General Workflow:
 
 12. Create tiered geopackages (Index (transects, ROIs, reference shorelines, reference polygons, foreshore slopes, shore type), Tier_0 (waterlines and unfiltered data), Tier_1 (instantaneous ensembled data), Tier_2 (resampled data), Tier_3 (record statistics)).
 
-13. Take a loot at qc_code for some functions made to check all of the data that was generated.
+13. Take a look at qc_code for some functions made to check all of the data that was generated.
 
 14. Use composite_analysis.py to create composite tiffs on an annual or decadal basis. These reduce the imagery density and remove much of the noise in the instantaneous images, making them easier to interpret as well as analyze for planform changes. Thresholding on the NIR/SWIR bands will work well on these. example (makes decadal composites 1980s, 1990s, 2000s, 2010s, 2020s for 1400000) ```composite_analysis.py -g 1 -c 4 -rr 00 -sss 059 -i decadal -is 0.335``` 
 
