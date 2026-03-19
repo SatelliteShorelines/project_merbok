@@ -175,6 +175,5 @@ def filter_coregistration(results_path,
     
     csv_path = os.path.join(output_folder, "filtered_files.csv")
     df.to_csv(csv_path,index=False)
-    print(f"Filtered coregistration results saved to {csv_path}")
     
     return df

@@ -18,6 +18,9 @@ from collections import Counter
 
 ##gdal and rasterio routines
 from osgeo import gdal
+gdal.UseExceptions()        # prevents the warning
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="osgeo.gdal")
 import rasterio
 from rasterio.warp import reproject, Resampling
 from rasterio.transform import from_origin
@@ -51,10 +54,10 @@ parser.add_argument("-c", "--coastal_area", type=str, help='coastal area, ex: 4 
 parser.add_argument("-rr", "--subregion", type=str, help='subregion')
 parser.add_argument("-sss", "--shoreline_section", type=str, required=False, default = '', help='shoreline section')
 parser.add_argument("-i", "--interval", type=str, required=True, default = '', help='composite interval, decadal or annual')
-parser.add_argument("-d", "--directory_name", type=str, required=True, help='name of directory to save in')
+parser.add_argument("-pdh", "--processed_data_home", type=str, required=True, help='root to processed data dir /G#/C#/RR##/SSS###')
+parser.add_argument("-cdh", "--composite_data_home", type=str, required=True, help='root to save processed composite data')
 parser.add_argument("-is", "--image_score", type=str, required=False, default='0.335', help='image suitability score')
 parser.add_argument("-t", "--time", type=str, required=False, default = '', help='specific year or decade, e.g. 2015 for year 2015, 2010 for 2010s')
-
 
 def get_immediate_subdirectories(a_dir):
     return [name for name in os.listdir(a_dir)
@@ -1344,34 +1347,32 @@ c = args.coastal_area
 rr = args.subregion
 sss = args.shoreline_section
 interval = args.interval
-directory_name = args.directory_name
+processed_data_home = args.processed_data_home
+composite_data_home = args.composite_data_home
 image_score = args.image_score
 image_score = float(image_score)
 time = args.time
-home = os.path.join('/', 'mnt', 'hdd_6tb','Alaska_Analysis_Images', 'G'+g, 'C'+c)
-alaska_vrts_folder = os.path.join('/', 'mnt', 'f', 'Merbok')
-alaska_vrts_folder = os.path.join(alaska_vrts_folder, directory_name)
+r_home = os.path.join(processed_data_home, 'G'+g, 'C'+c, 'RR'+rr)
 try:
-    os.mkdir(alaska_vrts_folder)
+    os.mkdir(composite_data_home)
 except:
     pass
 try:
-    os.mkdir(os.path.join(alaska_vrts_folder, 'G'+g))
+    os.mkdir(os.path.join(composite_data_home, 'G'+g))
 except:
     pass
 try:
-    os.mkdir(os.path.join(alaska_vrts_folder, 'G'+g, 'C'+c))
+    os.mkdir(os.path.join(composite_data_home, 'G'+g, 'C'+c))
 except:
     pass
 try:
-    os.mkdir(os.path.join(alaska_vrts_folder, 'G'+g, 'C'+c, 'RR'+rr))
+    os.mkdir(os.path.join(composite_data_home, 'G'+g, 'C'+c, 'RR'+rr))
 except:
     pass
-r_home = os.path.join(home, 'RR'+rr)
 if sss!='':
     sss = args.shoreline_section
-    composite_analysis_section(g, c, rr, sss, interval, alaska_vrts_folder, r_home, image_score, time=time)
+    composite_analysis_section(g, c, rr, sss, interval, composite_data_home, r_home, image_score, time=time)
 else:
-    composite_analysis_region(g, c, rr, interval, r_home, alaska_vrts_folder, image_score, time=time)
+    composite_analysis_region(g, c, rr, interval, r_home, composite_data_home, image_score, time=time)
 
 

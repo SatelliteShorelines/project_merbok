@@ -8,6 +8,7 @@ import shapely
 from shapely import Point, LineString, MultiPoint, MultiLineString
 import rioxarray
 
+
 ##numerical and data
 import numpy as np
 import pandas as pd
@@ -802,7 +803,7 @@ def remove_nones(my_list):
 #     linestrings = [line for line in dummy_gdf['geometry']]
 #     return linestrings
 
-def get_contours(seg_lab,
+def get_contours_old(seg_lab,
                  satname,
                  xmin,
                  ymax,
@@ -849,6 +850,89 @@ def get_contours(seg_lab,
     dummy_gdf = dummy_gdf[dummy_gdf['len']>1]
 
     return list(dummy_gdf.geometry)
+
+
+def get_contours(seg_lab,
+                 satname,
+                 xmin,
+                 ymax,
+                 x_res,
+                 y_res,
+                 data_polygon,
+                 reference_shoreline_gdf,  # kept for signature compatibility
+                 ref_shore_buffer,         # kept for signature compatibility
+                 reference_polygon,        # kept for signature compatibility
+                 data_mask,
+                 crs):
+    from shapely.geometry import LineString, MultiLineString
+    from shapely.ops import unary_union
+    """
+    Extract contours from a two-class segmented image and convert to geographic LineStrings.
+    Returns: list of shapely LineString geometries, same as before.
+    """
+
+    # 1) Find contours on masked segmentation (unchanged)
+    contours = measure.find_contours(seg_lab, 0.5, mask=data_mask)
+
+    # 2) Your clipping units logic (unchanged)
+    clip_map = {'S2': 10, 'PS': 5}
+    clip_units = int(50 / clip_map.get(satname, 30))  # default for L5–L9
+
+    # 3) Convert contours to LineStrings (as your GeoJSON → shapely did implicitly)
+    lines = []
+    for contour in contours:
+        if len(contour) <= 5:
+            continue
+        c = contour[clip_units:-clip_units]
+        if len(c) <= 1:
+            continue
+
+        # Use the same converter you already rely on
+        geom = contour_to_geo_coords(c, xmin, ymax, x_res, y_res)
+        # Convert to LineString in the exact same coordinate order
+        if isinstance(geom, LineString):
+            line = geom
+        elif isinstance(geom, dict) and geom.get("type") == "LineString":
+            line = LineString(geom["coordinates"])
+        else:
+            # assume it's a sequence of (x,y) coords
+            try:
+                line = LineString(geom)
+            except Exception:
+                continue
+
+        # Keep only lines with >1 vertices (same filter)
+        if len(line.coords) > 1:
+            lines.append(line)
+
+    if not lines:
+        return []
+
+    # 4) unary_union of all lines (unchanged methodology)
+    union_lines = unary_union(lines)  # LineString or MultiLineString
+
+    # 5) Clip the union against data_polygon (same step as gpd.clip on the union)
+    # If data_polygon is None, behave like your try/except fallback (no clip)
+    if data_polygon is not None:
+        clipped = union_lines.intersection(data_polygon)
+    else:
+        clipped = union_lines
+
+    if clipped.is_empty:
+        return []
+
+    # 6) Explode into LineStrings and filter (same as GeoDataFrame explode/type filter)
+    out = []
+    if clipped.geom_type == 'LineString':
+        if len(clipped.coords) > 1:
+            out.append(clipped)
+    elif clipped.geom_type == 'MultiLineString':
+        for ls in clipped.geoms:
+            if len(ls.coords) > 1:
+                out.append(ls)
+    # (Other geom types do not occur in your current path after union+clip)
+
+    return out
 
 def clip_extracted_shoreline(shoreline_geojson, data_polygon, reference_shoreline, reference_polygon, ref_shore_buffer):
     """

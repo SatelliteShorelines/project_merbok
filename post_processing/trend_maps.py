@@ -127,28 +127,6 @@ def get_trend(filter_df, transect_id, output_dir):
         x,y = prep_trend_data(filter_df)
     except:
         return None, None, None, None, None, None, None, None, None
-    # if len(x)>2:
-    #     ms = pwr.ModelSelection(x, y, max_breakpoints=6)
-    #     model_summaries = ms.model_summaries
-    #     result_df = pd.DataFrame({'bic':[None]*len(model_summaries),
-    #                             'breakpoints':[None]*len(model_summaries),
-    #                             'converged':[None]*len(model_summaries)
-    #                             }
-    #                             )
-    #     for i in range(len(model_summaries)):
-    #         result = model_summaries[i]
-    #         bic = result['bic']
-    #         breaks = result['n_breakpoints']
-    #         conv = result['converged']
-    #         result_df.at[i,'bic']=bic
-    #         result_df.at[i,'breakpoints']=breaks
-    #         result_df.at[i,'converged']=conv
-    #     result_df = result_df[result_df['converged']==True]
-    #     best = result_df[result_df['bic']==min(result_df['bic'])]
-    #     break_point = best['breakpoints'].iloc[0]
-    # else:
-    #     break_point = None
-
     lls_result = stats.linregress(x,y)
     filter_df_1980s = filter_df[filter_df['date'].dt.year<1990]
     try:
@@ -324,12 +302,6 @@ def get_trends(transect_timeseries_path,
     signal_to_noises = [None]*len(transects)
     for i in range(len(slopes)):
         transect_id = int(transects['transect_id'].iloc[i])
-        # if isinstance(old_trends, gpd.GeoDataFrame)==False:
-        #     previous_nbreakpoints=None
-        # else:
-        #     old_trend = old_trends[old_trends['transect_id']==str(transect_id)]
-        #     previous_nbreakpoints = int(old_trend['n_breakpoints'].iloc[0])
-            
         transect_data = timeseries_data[timeseries_data['transect_id']==transect_id].reset_index(drop=True)
 
         if len(transect_data)==0:

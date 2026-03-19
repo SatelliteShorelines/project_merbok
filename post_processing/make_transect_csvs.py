@@ -10,11 +10,11 @@ import geopandas as gpd
 import datetime
 import shapely
 import traceback
-import tqdm
 import itertools
 from scipy.optimize import minimize
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-
+import logging
+import traceback
 
 # USGS-style settings
 plt.rcParams.update({
@@ -521,24 +521,60 @@ def transect_timeseries_to_wgs84_resampled(transect_timeseries_merged_path,
     #new_gdf_shorelines_wgs84.to_file(new_gdf_shorelines_wgs84_path)
     points_gdf_wgs84.to_file(points_wgs84_path)
 
+
 def resample_timeseries(df, timedelta):
     """
-    Resamples the timeseries according to the provided timedelta, mean
+    Resamples the timeseries according to the provided timedelta, mean.
+    Also computes 'ci' = 1.96 * SEM of 'cross_distance' in each window.
+    Returns a DataFrame with a 'dates' column (UTC).
     """
-    old_df = df
-    old_df.index = df['dates']
-    new_df = old_df.resample(timedelta).mean()
-    new_df['ci'] = old_df['cross_distance'].resample(timedelta).sem()*1.96
+    # Work on a copy and normalize 'dates'
+    old_df = df.copy()
+    old_df['dates'] = pd.to_datetime(old_df['dates'], utc=True, errors='coerce')
+    old_df = old_df.sort_values('dates')
+    old_df = old_df.set_index('dates')
+
+    # Mean for numeric columns
+    new_df = old_df.select_dtypes(include=['number']).resample(timedelta).mean()
+
+    # CI from SEM of cross_distance, if present
+    if 'cross_distance' in old_df.columns:
+        new_df['ci'] = old_df['cross_distance'].resample(timedelta).sem() * 1.96
+    else:
+        new_df['ci'] = np.nan
+
+    # Return with 'dates' as a column
+    new_df = new_df.reset_index()
     return new_df
+
+
 
 def fill_nans(df):
     """
-    Fills nans in timeseries with linear interpolation
+    Fills NaNs in timeseries with interpolation on numeric columns only.
     """
-    old_df = df
-    old_df.index = df['dates']
-    new_df = old_df.interpolate(method='linear', limit=None, limit_direction='both')
+    # Work on a copy
+    old_df = df.copy()
+
+    # Ensure 'dates' column exists and is datetime, then use it as the index
+    old_df['dates'] = pd.to_datetime(old_df['dates'], utc=True, errors='coerce')
+    old_df = old_df.sort_values('dates')
+    old_df = old_df.set_index('dates')
+
+    # Interpolate only numeric columns
+    num_cols = old_df.select_dtypes(include=['number']).columns
+    if len(num_cols) > 0:
+        try:
+            # Prefer time-based interpolation since we have a DatetimeIndex
+            old_df[num_cols] = old_df[num_cols].interpolate(method='time', limit_direction='both')
+        except Exception:
+            # Fallback to linear if 'time' is unsupported in your environment
+            old_df[num_cols] = old_df[num_cols].interpolate(method='linear', limit_direction='both')
+
+    # Return 'dates' back as a column for downstream code
+    new_df = old_df.reset_index()
     return new_df
+
 
 def resample_and_reproject_shorelines(transect_timeseries_path,
          transects_path,
@@ -1353,7 +1389,7 @@ def plot_diagnostics(
     fig2.savefig(os.path.join(output_folder, f"{transect_id}_suitability_diagnostic.png"), dpi=150)
     plt.close(fig2)
 
-def save_csv_per_id(
+def save_csv_per_id_old(
     input_file_rgb,
     input_file_nir,
     input_file_swir,
@@ -1741,4 +1777,415 @@ def save_csv_per_id(
                                  savename_points)
 
 
+def save_csv_per_id(
+    input_file_rgb,
+    input_file_nir,
+    input_file_swir,
+    timeseries_type,
+    input_file_transects,
+    section_string,
+    resample_freq='365D'
+):
+    # Logger
+    log_root = os.path.join(os.getcwd(), 'logs', 'timeseries_filtering')
+    os.makedirs(log_root, exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(log_root, f"{section_string}_{ts}.log")
+    logger_name = f"timeseries_filtering.{section_string}.{ts}"
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        fh = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+        fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
 
+    csvname = "timeseries.csv"
+    figname = "timeseries.png"
+    id_column_name = "transect_id"
+
+    save_location = os.path.join(os.path.dirname(input_file_rgb), timeseries_type + '_timeseries_csvs')
+    os.makedirs(save_location, exist_ok=True)
+
+    # read the csv files
+    try:
+        df_rgb = pd.read_csv(input_file_rgb)
+        df_nir = pd.read_csv(input_file_nir)
+        df_swir = pd.read_csv(input_file_swir)
+        logger.info("Loaded input CSVs: rgb=%s, nir=%s, swir=%s", input_file_rgb, input_file_nir, input_file_swir)
+    except Exception:
+        logger.exception("Failed to read one or more input CSVs.")
+        return
+
+    # drop unnamed index cols if present
+    for df in (df_rgb, df_nir, df_swir):
+        if "Unnamed: 0" in df.columns:
+            df.drop(columns=["Unnamed: 0"], inplace=True)
+
+    new_df_rgb = pd.DataFrame()
+    new_df_nir = pd.DataFrame()
+    new_df_swir = pd.DataFrame()
+    try:
+        unique_ids = sorted(df_rgb[id_column_name].unique())
+    except Exception:
+        logger.exception("Column '%s' missing in RGB dataframe.", id_column_name)
+        return
+
+    dfs = [None] * len(unique_ids)
+    dfs2 = [None] * len(unique_ids)
+    dfs_resample_filter = [None] * len(unique_ids)
+
+    i = 0
+    for uid in unique_ids:
+        try:
+            new_filename = str(uid) + '_' + csvname
+            new_figure = str(uid) + '_' + figname
+            new_optimum = str(uid) + '_optimization.png'
+            new_diagnostic = str(uid) + '_weights_diagnostic.png'
+            new_hist = str(uid) + '_suitability_hist.png'
+
+            csv_save = os.path.join(save_location, new_filename)
+            fig_save = os.path.join(save_location, new_figure)
+            optimum_save = os.path.join(save_location, new_optimum)
+            diagnostic_save = os.path.join(save_location, new_diagnostic)
+            hist_save = os.path.join(save_location, new_hist)
+
+            new_df_rgb = df_rgb[df_rgb[id_column_name] == uid].reset_index(drop=True)
+            new_df_nir = df_nir[df_nir[id_column_name] == uid].reset_index(drop=True)
+            new_df_swir = df_swir[df_swir[id_column_name] == uid].reset_index(drop=True)
+
+            new_df_all = pd.merge(new_df_rgb, new_df_nir, on='dates', suffixes=['_rgb', '_nir'])
+            new_df_all = pd.merge(new_df_all, new_df_swir, how='outer', on='dates', suffixes=['', '_swir'])
+
+            new_df_all = new_df_all.rename(columns={
+                'image_suitability_score': 'image_suitability_score_swir',
+                'segmentation_suitability_score': 'segmentation_suitability_score_swir',
+                'image_suitability_score_rgb': 'image_suitability_score',
+                'satname': 'satname_swir',
+                'transect_id': 'transect_id_swir',
+                'intersect_x': 'intersect_x_swir',
+                'intersect_y': 'intersect_y_swir',
+                'cross_distance': 'cross_distance_swir',
+                'cross_distance_tidally_corrected': 'cross_distance_tidally_corrected_swir',
+                'x': 'x_swir',
+                'y': 'y_swir',
+                'tide': 'tide_swir',
+                'avg_slope': 'avg_slope_swir',
+            })
+            new_df_all = new_df_all.rename(columns={
+                'image_suitability_score_rgb': 'image_suitability_score',
+                'segmentation_suitability_score_swir': 'segmentaion_suitability_score'
+            })
+
+            # Prepare dataframe
+            new_df_all['dates'] = pd.to_datetime(new_df_all['dates'], utc=True)
+            new_df_all = new_df_all.sort_values(by='dates')
+
+            # Median, min, max across sensors
+            vals_stack = np.vstack([
+                new_df_all['cross_distance_tidally_corrected_rgb'].to_numpy(float),
+                new_df_all['cross_distance_tidally_corrected_nir'].to_numpy(float),
+                new_df_all['cross_distance_tidally_corrected_swir'].to_numpy(float)
+            ])
+            new_df_all['median_pos'] = np.nanmedian(vals_stack, axis=0)
+            new_df_all['max_pos'] = np.nanquantile(vals_stack, q=0.90, axis=0)
+            new_df_all['min_pos'] = np.nanquantile(vals_stack, q=0.10, axis=0)
+
+            # Skip if too short
+            if len(new_df_all) < 2:
+                i += 1
+                logger.info("UID=%s: skipped (len<2)", str(uid))
+                continue
+
+            # Feature-level suitabilities
+            new_df_all = apply_all_suitability_filters_for_transect(new_df_all)
+
+            FEATURE_COLS = [
+                'ensemble_suitability',
+                'loess_suitability',
+                'roc_suitability',
+                'median_deviation_suitability',
+                'cluster_suitability',
+                'hampel_suitability',
+            ]
+            FILTER_MODE = 'all'
+
+            # Weight selection
+            if FILTER_MODE != 'all':
+                fixed_w = np.zeros(len(FEATURE_COLS))
+                idx = FEATURE_COLS.index(FILTER_MODE + '_suitability')
+                fixed_w[idx] = 1.0
+            else:
+                fixed_w = np.array([1.0 / len(FEATURE_COLS)] * len(FEATURE_COLS))
+
+            # Bimodal remap per feature
+            for col in FEATURE_COLS:
+                new_df_all[col] = remap_bimodal_rank_push_array(
+                    new_df_all[col].to_numpy(float), gamma=3.0
+                )
+
+            # Threshold optimization
+            new_df_all, new_df_all_filter, info = optimize_with_fixed_weights(
+                new_df_all,
+                FEATURE_COLS,
+                fixed_w,
+                alpha=0.5,
+                beta=0.5,
+                grid_size=401,
+                r_target=0.3,
+                r_width=0.05,
+                lambda_t=0.01,
+                t_min=0.05,
+                min_filter_floor=0.01
+            )
+
+            plot_diagnostics(
+                df_full=new_df_all,
+                df_filtered=new_df_all_filter,
+                feature_cols=FEATURE_COLS,
+                threshold=info['threshold'],
+                transect_id=uid,
+                output_folder=save_location
+            )
+
+            # Save CSVs (unfiltered + filtered), atomic writes
+            try:
+                logger.info("UID=%s: saving CSV → %s", str(uid), csv_save)
+                tmp_unf = os.path.splitext(csv_save)[0] + '_unfiltered.csv.tmp'
+                tmp_f = csv_save + '.tmp'
+                new_df_all.to_csv(os.path.splitext(csv_save)[0] + '_unfiltered.csv', index=False)
+                new_df_all_filter.to_csv(tmp_f, index=False)
+                os.replace(tmp_f, csv_save)
+            except Exception:
+                logger.exception("UID=%s: writing CSV failed → %s", str(uid), csv_save)
+
+            # Prep resampling dataframes
+            data = pd.DataFrame({
+                'dates': new_df_all_filter['dates'],
+                'cross_distance': new_df_all_filter['median_pos'],
+                'transect_id': [uid] * len(new_df_all_filter)
+            })
+            data1 = pd.DataFrame({
+                'dates': new_df_all_filter['dates'],
+                'cross_distance': new_df_all_filter['median_pos'],
+                'cross_distance_min': new_df_all_filter['min_pos'],
+                'cross_distance_max': new_df_all_filter['max_pos'],
+                'cross_distance_rgb': new_df_all_filter['cross_distance_tidally_corrected_rgb'],
+                'cross_distance_nir': new_df_all_filter['cross_distance_tidally_corrected_nir'],
+                'cross_distance_swir': new_df_all_filter['cross_distance_tidally_corrected_swir'],
+                'ci': new_df_all_filter['max_pos'] - new_df_all_filter['min_pos'],
+                'transect_id': [uid] * len(new_df_all_filter),
+                'avg_suitability': new_df_all_filter['avg_suitability'],
+                'satname': new_df_all_filter['satname_rgb'],
+                'avg_slope': new_df_all_filter['avg_slope_cleaned_rgb'],
+                'tide': new_df_all_filter['tide_rgb']
+            })
+            data2 = pd.DataFrame({
+                'dates': new_df_all['dates'],
+                'cross_distance': new_df_all['median_pos'],
+                'cross_distance_min': new_df_all['min_pos'],
+                'cross_distance_max': new_df_all['max_pos'],
+                'cross_distance_rgb': new_df_all['cross_distance_tidally_corrected_rgb'],
+                'cross_distance_nir': new_df_all['cross_distance_tidally_corrected_nir'],
+                'cross_distance_swir': new_df_all['cross_distance_tidally_corrected_swir'],
+                'ci': new_df_all['max_pos'] - new_df_all['min_pos'],
+                'transect_id': [uid] * len(new_df_all),
+                'avg_suitability': new_df_all['avg_suitability'],
+                'satname': new_df_all['satname_rgb'],
+                'avg_slope': new_df_all['avg_slope_cleaned_rgb'],
+                'tide': new_df_all['tide_rgb']
+            })
+
+            data_resample = resample_timeseries(data1, resample_freq)  # data1 has 'ci'
+
+            if 'dates' not in data_resample.columns:
+                if isinstance(data_resample.index, pd.DatetimeIndex):
+                    data_resample = data_resample.reset_index().rename(columns={'index': 'dates'})
+                elif 'date' in data_resample.columns:
+                    data_resample = data_resample.rename(columns={'date': 'dates'})
+
+            data_resample['dates'] = pd.to_datetime(data_resample['dates'], utc=True, errors='coerce')
+            data_resample = data_resample.sort_values('dates')
+
+            # Trim to numeric columns expected by fill_nans (to avoid object interpolation)
+            filled = fill_nans(data_resample[['dates', 'cross_distance', 'ci']].copy())
+
+            data_resample = pd.DataFrame({
+                'dates': filled['dates'].dt.round('1s'),
+                'cross_distance': filled['cross_distance'],
+                'ci': filled['ci'],
+                'transect_id': [uid] * len(filled)
+            }).reset_index(drop=True)
+
+
+            dfs[i] = data1
+            dfs2[i] = data2
+            dfs_resample_filter[i] = data_resample
+
+            if len(new_df_all_filter) > 0:
+                try:
+                    # SNR and entropy diagnostics
+                    t1 = new_df_all['dates']
+                    y1 = new_df_all['median_pos']
+                    t2 = new_df_all_filter['dates']
+                    y2 = new_df_all_filter['median_pos']
+
+                    snr_unfiltered = snr_median(t1, y1, eps=1e-12)
+                    snr_filtered = snr_median(t2, y2, eps=1e-12)
+                    snr_sign = sign(snr_filtered - snr_unfiltered)
+
+                    entropy_unfiltered = shannon_entropy(t1, y1, bins=30)
+                    entropy_filtered = shannon_entropy(t2, y2, bins=30)
+                    entropy_sign = sign(entropy_filtered - entropy_unfiltered)
+
+                    logger.info(
+                        "UID=%s: SNR (unfiltered)=%.3f, SNR (filtered)=%.3f, "
+                        "Entropy (unfiltered)=%.3f, Entropy (filtered)=%.3f, "
+                        "SNR change=%s, Entropy change=%s",
+                        str(uid), snr_unfiltered, snr_filtered,
+                        entropy_unfiltered, entropy_filtered,
+                        snr_sign, entropy_sign
+                    )
+
+                    arrow_map = {'positive': '↑', 'negative': '↓', 'zero': '→'}
+                    snr_arrow = arrow_map.get(snr_sign, '')
+                    entropy_arrow = arrow_map.get(entropy_sign, '')
+
+                    with plt.rc_context({"figure.figsize": (18, 5)}):
+                        plt.rcParams['lines.markersize'] = 5
+                        plt.rcParams['lines.linewidth'] = 2
+
+                        sc = plt.scatter(
+                            new_df_all['dates'],
+                            new_df_all['median_pos'],
+                            c=new_df_all['avg_suitability'],
+                            cmap='viridis',
+                            s=20,
+                        )
+                        cbar = plt.colorbar(sc)
+                        cbar.set_label('Average Suitability', fontsize=20)
+                        cbar.ax.tick_params(labelsize=12)
+
+                        plt.plot(
+                            new_df_all_filter['dates'],
+                            new_df_all_filter['median_pos'],
+                            '--o',
+                            color='k'
+                        )
+                        plt.fill_between(
+                            new_df_all_filter['dates'],
+                            new_df_all_filter['min_pos'],
+                            new_df_all_filter['max_pos'],
+                            color='k',
+                            alpha=0.25
+                        )
+
+                        plt.ylabel('Cross-Shore Position (m)', fontsize=20)
+                        plt.xlabel('Time (UTC)', fontsize=20)
+
+                        years = np.arange(1984, 2026, 2)
+                        ticks = [np.datetime64(f"{y}-01-01") for y in years]
+                        plt.xticks(ticks, years, rotation=60, fontsize=20)
+                        plt.yticks(fontsize=20)
+
+                        plt.xlim(min(ticks), max(ticks))
+                        plt.ylim(min(new_df_all['min_pos']), max(new_df_all['max_pos']))
+                        plt.minorticks_on()
+                        plt.text(
+                            0.01, 0.98,
+                            f"SNR (unfiltered): {snr_unfiltered:.3f}\n"
+                            f"SNR (filtered):   {snr_filtered:.3f}\n"
+                            f"Entropy (unfiltered): {entropy_unfiltered:.3f}\n"
+                            f"Entropy (filtered):   {entropy_filtered:.3f}\n"
+                            f"SNR change: {snr_arrow}    Entropy change: {entropy_arrow}",
+                            transform=plt.gca().transAxes,
+                            fontsize=16,
+                            va='top',
+                            ha='left',
+                            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none')
+                        )
+                        plt.tight_layout()
+                        plt.savefig(fig_save, dpi=500)
+                        plt.close('all')
+
+                    i += 1
+                except Exception:
+                    logger.exception("UID=%s: error making figure.", str(uid))
+                    plt.close('all')
+                    i += 1
+                    continue
+            else:
+                i += 1
+                continue
+
+        except Exception:
+            logger.exception("UID=%s: unhandled error in timeseries filtering.", str(uid))
+            i += 1
+            continue
+
+    # Save ensemble outputs
+    try:
+        unfiltered_df = pd.concat(dfs2)
+        for col in [
+            'cross_distance', 'cross_distance_min', 'cross_distance_rgb',
+            'cross_distance_nir', 'cross_distance_swir', 'ci',
+            'avg_suitability', 'avg_slope', 'tide'
+        ]:
+            unfiltered_df[col] = unfiltered_df[col].astype(float)
+        unfiltered_df_path = os.path.join(os.path.dirname(input_file_rgb), section_string + '_unfiltered_tidally_corrected_transect_time_series_merged.csv')
+        unfiltered_df.to_csv(unfiltered_df_path, index=False)
+        logger.info("Saved unfiltered ensemble → %s (rows=%d)", unfiltered_df_path, len(unfiltered_df))
+    except Exception:
+        logger.exception("Failed saving unfiltered ensemble.")
+
+    try:
+        filtered_df = pd.concat(dfs)
+        for col in [
+            'cross_distance', 'cross_distance_min', 'cross_distance_rgb',
+            'cross_distance_nir', 'cross_distance_swir', 'ci',
+            'avg_suitability', 'avg_slope', 'tide'
+        ]:
+            filtered_df[col] = filtered_df[col].astype(float)
+        filtered_df_path = os.path.join(os.path.dirname(input_file_rgb), section_string + '_filtered_tidally_corrected_transect_time_series_merged.csv')
+        filtered_df.to_csv(filtered_df_path, index=False)
+        logger.info("Saved filtered ensemble → %s (rows=%d)", filtered_df_path, len(filtered_df))
+    except Exception:
+        logger.exception("Failed saving filtered ensemble.")
+
+    try:
+        resampled_df = pd.concat(dfs_resample_filter)
+        resampled_df_path = os.path.join(os.path.dirname(input_file_rgb), section_string + '_resampled_tidally_corrected_transect_time_series_merged.csv')
+        resampled_df.to_csv(resampled_df_path, index=False)
+        logger.info("Saved resampled ensemble → %s (rows=%d)", resampled_df_path, len(resampled_df))
+    except Exception:
+        logger.exception("Failed saving resampled ensemble.")
+
+    # Matrix
+    try:
+        resampled_mat = resampled_df.pivot(index='dates', columns='transect_id', values='cross_distance')
+        resampled_mat.columns.name = None
+        resampled_mat_path = os.path.join(os.path.dirname(input_file_rgb), section_string + '_resampled_tidally_corrected_transect_time_series_matrix.csv')
+        resampled_mat.to_csv(resampled_mat_path)
+        logger.info("Saved resampled matrix → %s (shape=%s)", resampled_mat_path, str(resampled_mat.shape))
+    except Exception:
+        logger.exception("Failed saving resampled matrix.")
+
+    # Geo outputs
+    try:
+        unfiltered_lines = os.path.join(os.path.dirname(input_file_rgb), section_string + '_unfiltered_tidally_corrected_lines.geojson')
+        unfiltered_points = os.path.join(os.path.dirname(input_file_rgb), section_string + '_unfiltered_tidally_corrected_points.geojson')
+        filtered_lines = os.path.join(os.path.dirname(input_file_rgb), section_string + '_filtered_tidally_corrected_lines.geojson')
+        filtered_points = os.path.join(os.path.dirname(input_file_rgb), section_string + '_filtered_tidally_corrected_points.geojson')
+        savename_lines = os.path.join(os.path.dirname(input_file_rgb), section_string + '_reprojected_lines.geojson')
+        savename_points = os.path.join(os.path.dirname(input_file_rgb), section_string + '_reprojected_points.geojson')
+
+        transect_timeseries_to_wgs84(unfiltered_df_path, input_file_transects, unfiltered_lines, unfiltered_points)
+        logger.info("Saved unfiltered geo outputs → lines=%s, points=%s", unfiltered_lines, unfiltered_points)
+
+        transect_timeseries_to_wgs84(filtered_df_path, input_file_transects, filtered_lines, filtered_points)
+        logger.info("Saved filtered geo outputs → lines=%s, points=%s", filtered_lines, filtered_points)
+
+        transect_timeseries_to_wgs84_resampled(resampled_df_path, input_file_transects, savename_lines, savename_points)
+        logger.info("Saved resampled geo outputs → lines=%s, points=%s", savename_lines, savename_points)
+    except Exception:
+        logger.exception("Failed saving geo outputs.")
