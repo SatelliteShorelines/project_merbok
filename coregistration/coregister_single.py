@@ -57,7 +57,6 @@ def co_register_single(im_reference, im_target):
 
     # Step 5. Save the coregistered Result to a json file
     json_save_path = os.path.join(output_folder, "coreg_result.json")
-    print(f"Saving the coregistered results to {json_save_path}")
     save_to_json(coreg_result, json_save_path)
 
 

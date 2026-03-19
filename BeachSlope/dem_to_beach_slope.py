@@ -482,7 +482,6 @@ def batch_main(in_raster, in_lines_path, out_folder, section_string, v, crs=6393
     transect_ids = [None]*len(layer)
     i=0
     for feature in layer:
-        print(i/len(layer)*100)
         transect_id = section_string+v+str(i*50).zfill(6)
         csv_path = os.path.join(out_folder, transect_id + '.csv')
         transect_ids[i] = transect_id        
@@ -805,7 +804,6 @@ def profile_shoreline_section(G,
     else:
         sections = get_immediate_subdirectories(RR_home)
     for section in sections:
-        print(section)
         section_dir = os.path.join(RR_home, section)
         section_string = G+C+RR+section[3:]
         transects_path = os.path.join(section_dir, section_string + '_transects.geojson')

@@ -8748,7 +8748,7 @@ def filter_timeseries_section(g, c, rr, sss, r_home, resample_freq='365D'):
         logger.exception("Timeseries filtering failed for section=%s", section_string)
 
 
-def get_slopes_section(g, c, rr, sss, r_home, arctic_dem, custom_dem):
+def get_slopes_section_old(g, c, rr, sss, r_home, arctic_dem, custom_dem):
     section = 'SSS'+sss
     section_dir = os.path.join(r_home, section)
     section_string = g + c + rr + sss
@@ -8762,6 +8762,77 @@ def get_slopes_section(g, c, rr, sss, r_home, arctic_dem, custom_dem):
                             arctic_dem=arctic_dem,
                             custom_dem=custom_dem,
                             vertical_datum='')
+
+
+def get_slope_logger(section_string: str) -> logging.Logger:
+    """
+    Logger for slope computation:
+      <cwd>/logs/slope_computation/<section_string>_<YYYYMMDD_HHMMSS>.log
+    """
+    log_root = os.path.join(os.getcwd(), 'logs', 'slope_computation')
+    os.makedirs(log_root, exist_ok=True)
+
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(log_root, f"{section_string}_{ts}.log")
+
+    logger_name = f"slope_computation.{section_string}.{ts}"
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.INFO)
+
+    fh = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+
+    return logger
+
+
+def get_slopes_section(g, c, rr, sss, r_home, arctic_dem, custom_dem):
+    """
+    Wrapper for profile_shoreline_section with logging.
+    Logs to: <cwd>/logs/slope_computation/<section_string>_YYYYMMDD_HHMMSS.log
+    """
+
+    import os
+    import glob
+    import datetime
+    import logging
+    import geopandas as gpd
+    import pandas as pd
+    from osgeo import gdal
+
+    section = 'SSS' + sss
+    section_dir = os.path.join(r_home, section)
+    section_string = g + c + rr + sss
+
+    # -------------------------
+    # Initialize logger
+    # -------------------------
+    logger = get_slope_logger(section_string)
+    logger.info("Starting slope computation for section %s", section_string)
+    logger.info("Section directory: %s", section_dir)
+    logger.info("Arctic DEM: %s | Custom DEM: %s", arctic_dem, custom_dem)
+
+    try:
+        logger.info("Calling profile_shoreline_section()")
+        dem_to_beach_slope.profile_shoreline_section(
+            g,
+            c,
+            rr,
+            '0',
+            r_home,
+            all_sections=False,
+            custom_sections=['SSS' + sss],
+            arctic_dem=arctic_dem,
+            custom_dem=custom_dem,
+            vertical_datum=''
+        )
+        logger.info("Completed profile_shoreline_section() successfully for %s", section_string)
+
+    except Exception as e:
+        logger.exception("Error in profile_shoreline_section for %s", section_string)
+
+    logger.info("Finished slope computation wrapper for %s", section_string)
 
 def merge_files_region(g, c, rr, r_home):
     sections = sorted(get_immediate_subdirectories(r_home))
