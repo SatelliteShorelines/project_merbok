@@ -470,7 +470,7 @@ def arr_to_LineString(coords):
     line = shapely.geometry.LineString(points)
     return line
 
-def contour_to_geo_coords(contour, xmin, ymax, xres, yres):
+def contour_to_geo_coords_old(contour, xmin, ymax, xres, yres):
     """
     Converts a contour from skimage.measure.find_contours to geographic coordinates
     returns as a shapely LineString
@@ -502,6 +502,43 @@ def contour_to_geo_coords(contour, xmin, ymax, xres, yres):
         line = None
     return line
 
+
+def contour_to_geo_coords(contour_rc,
+                          xmin,
+                          ymax,
+                          x_res,
+                          y_res,
+                          transform=None,
+                          offset='center'):
+    """
+    Convert Nx2 [row, col] float coordinates (as returned by skimage.measure.find_contours)
+    into map coordinates.
+
+    If `transform` (Affine) is provided, use rasterio.transform.xy to convert pixel
+    rows/cols to map coordinates (preferred; handles rotation/shear and sign).
+    Otherwise, fall back to manual north-up mapping:
+        x = xmin + x_res * col
+        y = ymax - y_res * row
+    where `y_res` should be positive pixel height (e.g., -transform.e for north-up rasters).
+
+    Returns: list of (x, y) tuples.
+    """
+    import numpy as np
+
+    if transform is not None:
+        import rasterio
+        rows = contour_rc[:, 0]
+        cols = contour_rc[:, 1]
+        xs, ys = rasterio.transform.xy(transform, rows, cols, offset=offset)
+        return list(zip(xs, ys))
+    else:
+        cols = contour_rc[:, 1]
+        rows = contour_rc[:, 0]
+        xs = xmin + x_res * cols
+        ys = ymax - y_res * rows  # north-up: rows increase downward
+        return list(zip(xs, ys))
+
+        
 def extract_mode_along_line(xarr, line):
     """
     Profiles a raster with a line, returns mode of the profile
@@ -852,7 +889,7 @@ def get_contours_old(seg_lab,
     return list(dummy_gdf.geometry)
 
 
-def get_contours(seg_lab,
+def get_contours_old3(seg_lab,
                  satname,
                  xmin,
                  ymax,
@@ -931,6 +968,81 @@ def get_contours(seg_lab,
             if len(ls.coords) > 1:
                 out.append(ls)
     # (Other geom types do not occur in your current path after union+clip)
+
+    return out
+
+
+def get_contours(seg_lab,
+                 satname,
+                 xmin,
+                 ymax,
+                 x_res,
+                 y_res,
+                 data_polygon,
+                 reference_shoreline_gdf,  # kept for signature compatibility
+                 ref_shore_buffer,         # kept for signature compatibility
+                 reference_polygon,        # kept for signature compatibility
+                 data_mask,
+                 crs,
+                 transform=None):          # NEW: optional affine
+    """
+    Extract contours from a two-class segmented image and convert to geographic LineStrings.
+    If `transform` is provided (Affine), uses rasterio.transform.xy (preferred).
+    Otherwise falls back to manual north-up mapping with xmin/ymax/x_res/y_res.
+    Returns: list of shapely LineString geometries.
+    """
+    from shapely.geometry import LineString, MultiLineString
+    from shapely.ops import unary_union
+    from skimage import measure
+
+    # 1) Find contours on masked segmentation
+    contours = measure.find_contours(seg_lab, 0.5, mask=data_mask)
+
+    # 2) Clip units logic
+    clip_map = {'S2': 10, 'PS': 5}
+    clip_units = int(50 / clip_map.get(satname, 30))  # default for L5–L9
+
+    # 3) Convert contours to LineStrings
+    lines = []
+    for contour in contours:
+        if len(contour) <= 5:
+            continue
+        c = contour[clip_units:-clip_units]
+        if len(c) <= 1:
+            continue
+
+        # Convert [row, col] float coords to map coords
+        coords = contour_to_geo_coords(c, xmin, ymax, x_res, y_res, transform=transform)
+
+        try:
+            line = LineString(coords)
+        except Exception:
+            continue
+
+        if len(line.coords) > 1:
+            lines.append(line)
+
+    if not lines:
+        return []
+
+    # 4) unary_union
+    union_lines = unary_union(lines)  # LineString or MultiLineString
+
+    # 5) Clip the union against data_polygon
+    clipped = union_lines.intersection(data_polygon) if data_polygon is not None else union_lines
+
+    if clipped.is_empty:
+        return []
+
+    # 6) Explode into LineStrings and filter
+    out = []
+    if clipped.geom_type == 'LineString':
+        if len(clipped.coords) > 1:
+            out.append(clipped)
+    elif clipped.geom_type == 'MultiLineString':
+        for ls in clipped.geoms:
+            if len(ls.coords) > 1:
+                out.append(ls)
 
     return out
 

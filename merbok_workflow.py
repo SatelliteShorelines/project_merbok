@@ -5777,7 +5777,22 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
     returns:
     nothing
     """
+    import os, glob, shutil, datetime
+    import numpy as np
+    import pandas as pd
+    import geopandas as gpd
+    import rasterio
+    from tqdm import tqdm
+    from shapely.ops import unary_union
+    from shapely.geometry import shape as shapely_shape
+    from rasterio.features import shapes as rio_shapes
 
+    # external helpers assumed available in your environment:
+    # - get_shoreline_extraction_logger
+    # - wgs84_to_utm_df
+    # - split_line
+    # - LineString_to_arr
+    # - get_contours  (updated version provided below)
 
     # --------------------------------------------------------------------------------------
     # SETUP
@@ -5794,7 +5809,7 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
     try:
         reference_shoreline_gdf = gpd.read_file(ref_shl_path)
         reference_shoreline_gdf = wgs84_to_utm_df(reference_shoreline_gdf)
-        crs = reference_shoreline_gdf.crs
+        crs_ref = reference_shoreline_gdf.crs
     except Exception:
         logger.exception("Reference shoreline load/reproject failed → %s", ref_shl_path)
         return
@@ -5830,8 +5845,10 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
     if reset:
         df['shoreline_done'] = [None] * nrows
         for d in (zoo_dir, nir_dir, swir_dir):
-            try: shutil.rmtree(d)
-            except: pass
+            try:
+                shutil.rmtree(d)
+            except:
+                pass
         logger.info("Reset: cleared shoreline_done and deleted outputs.")
     else:
         if 'shoreline_done' not in df.columns:
@@ -5917,14 +5934,14 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
             # ----------------------------------------------------------------------------------
             with rasterio.open(image) as src:
                 if satname != 'PS':
-                    nir = src.read(4)
-                    seg_lab = src.read(6)
-                    bin_nir = src.read(7)
+                    nir      = src.read(4)
+                    seg_lab  = src.read(6)
+                    bin_nir  = src.read(7)
                     bin_swir = src.read(8)
                 else:
-                    nir = src.read(4)
-                    seg_lab = src.read(5)
-                    bin_nir = src.read(6)
+                    nir      = src.read(4)
+                    seg_lab  = src.read(5)
+                    bin_nir  = src.read(6)
                     bin_swir = None
 
                 mask_value = src.meta.get('nodata', None)
@@ -5933,7 +5950,7 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
                 crs_raster = src.crs
 
                 x_res = transform.a
-                y_res = -transform.e
+                y_res = -transform.e  # positive pixel height for north-up rasters
                 xmin  = bounds.left
                 ymax  = bounds.top
 
@@ -5943,26 +5960,21 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
 
             # Valid-data mask from NIR nodata
             if mask_value is not None:
-                data_mask   = (nir != mask_value).astype(bool, copy=False)
+                data_mask    = (nir != mask_value).astype(bool, copy=False)
                 no_data_mask = (nir == mask_value)
             else:
-                data_mask   = np.ones(nir.shape, dtype=bool)
+                data_mask    = np.ones(nir.shape, dtype=bool)
                 no_data_mask = np.zeros_like(nir, dtype=bool)
 
             # seg_lab → float + NaN on nodata
             seg_lab = seg_lab.astype(np.float32, copy=False)
             seg_lab[no_data_mask] = np.nan
 
-            # ----------------------------------------------------------------------------------
-            # ✔️ SIMPLE, SAFE FIX FOR ALL SENSORS INCLUDING L7
-            # ----------------------------------------------------------------------------------
-            # Require segmentation to be finite. This alone stops L7 stripe-following
-            # and does NOT over-mask valid shoreline pixels.
-
+            # Require segmentation to be finite (stops L7 stripe following)
             np.logical_and(data_mask, np.isfinite(seg_lab), out=data_mask)
 
             # ----------------------------------------------------------------------------------
-            # POLYGONIZATION (FAST SHAPELY VERSION, SAME METHODOLOGY)
+            # POLYGONIZATION (fast shapely version)
             # ----------------------------------------------------------------------------------
 
             try:
@@ -6004,14 +6016,14 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
                     no_data_polygon = gpd.GeoDataFrame.from_features(list(df_nd), crs=crs_raster) if mask_nd is not None else None
 
                     try:
-                        nd_union = no_data_polygon.buffer(x_res * 2).unary_union if no_data_polygon is not None and len(no_data_polygon)>0 else None
-                        data_union = data_polygon.unary_union if len(data_polygon)>0 else None
+                        nd_union = no_data_polygon.buffer(x_res * 2).unary_union if no_data_polygon is not None and len(no_data_polygon) > 0 else None
+                        data_union = data_polygon.unary_union if len(data_polygon) > 0 else None
                         if data_union is not None and nd_union is not None:
                             data_polygon_final = data_union.difference(nd_union)
                         else:
                             data_polygon_final = data_union
                     except:
-                        data_polygon_final = data_polygon.unary_union if len(data_polygon)>0 else None
+                        data_polygon_final = data_polygon.unary_union if len(data_polygon) > 0 else None
 
                 except Exception:
                     logger.exception("Fallback polygonization failed completely.")
@@ -6028,24 +6040,24 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
                 continue
 
             # ----------------------------------------------------------------------------------
-            # CONTOUR EXTRACTION (UNCHANGED)
+            # CONTOUR EXTRACTION (affine-aware)
             # ----------------------------------------------------------------------------------
 
             try:
                 lines = get_contours(seg_lab, satname, xmin, ymax, x_res, y_res,
                                      data_polygon_final, reference_shoreline_gdf,
-                                     ref_shore_buffer, None,
-                                     data_mask, crs)
-            except:
+                                     ref_shore_buffer, None, data_mask, crs_ref,
+                                     transform=transform)
+            except Exception:
                 logger.exception("get_contours failed for seg_lab → %s", image)
                 lines = []
 
             try:
                 lines_nir = get_contours(bin_nir, satname, xmin, ymax, x_res, y_res,
                                          data_polygon_final, reference_shoreline_gdf,
-                                         ref_shore_buffer, None,
-                                         data_mask, crs)
-            except:
+                                         ref_shore_buffer, None, data_mask, crs_ref,
+                                         transform=transform)
+            except Exception:
                 logger.exception("get_contours failed for binary NIR → %s", image)
                 lines_nir = []
 
@@ -6053,9 +6065,9 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
                 try:
                     lines_swir = get_contours(bin_swir, satname, xmin, ymax, x_res, y_res,
                                               data_polygon_final, reference_shoreline_gdf,
-                                              ref_shore_buffer, None,
-                                              data_mask, crs)
-                except:
+                                              ref_shore_buffer, None, data_mask, crs_ref,
+                                              transform=transform)
+                except Exception:
                     logger.exception("get_contours failed for binary SWIR → %s", image)
                     lines_swir = []
             else:
@@ -6089,7 +6101,7 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
                         shore_img_swir.append(img_score)
 
             # If none, mark done
-            if len(waterlines)==0 or len(waterlines_nir)==0:
+            if len(waterlines) == 0 or len(waterlines_nir) == 0:
                 df.at[i, 'shoreline_done'] = True
                 try:
                     df.to_csv(csv_out + ".tmp", index=False)
@@ -6100,56 +6112,68 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
                 continue
 
             # ----------------------------------------------------------------------------------
-            # SAVE OUTPUTS (unchanged)
+            # SAVE OUTPUTS (CRS-safe: tag with raster CRS, then to WGS84)
             # ----------------------------------------------------------------------------------
 
             # Zoo RGB
             try:
                 gdf = gpd.GeoDataFrame(
-                    {'dates':[fn_date]*len(waterlines),
-                     'image_suitability_score':shore_img,
-                     'segmentation_suitability_score':shore_seg,
-                     'satname':[satname]*len(waterlines)},
-                    geometry=waterlines, crs=crs)
+                    {
+                        'dates': [fn_date] * len(waterlines),
+                        'image_suitability_score': shore_img,
+                        'segmentation_suitability_score': shore_seg,
+                        'satname': [satname] * len(waterlines)
+                    },
+                    geometry=waterlines,
+                    crs=crs_raster   # <-- use raster CRS
+                )
                 out_rgb = os.path.join(zoo_dir, f"{fn_date}_{satname}_{roi}.geojson")
-                gdf = utm_to_wgs84_df(gdf)
+                gdf = gdf.to_crs("EPSG:4326")  # generic reprojection
                 gdf = split_line(gdf, 'LineString', smooth=True)
                 gdf.to_file(out_rgb)
                 logger.info("Saved RGB shorelines → %s", out_rgb)
-            except:
+            except Exception:
                 logger.exception("Failed saving RGB → %s", image)
 
             # NIR
             try:
                 gdf_n = gpd.GeoDataFrame(
-                    {'dates':[fn_date]*len(waterlines_nir),
-                     'image_suitability_score':shore_img_nir,
-                     'segmentation_suitability_score':shore_seg_nir,
-                     'satname':[satname]*len(waterlines_nir)},
-                    geometry=waterlines_nir, crs=crs)
+                    {
+                        'dates': [fn_date] * len(waterlines_nir),
+                        'image_suitability_score': shore_img_nir,
+                        'segmentation_suitability_score': shore_seg_nir,
+                        'satname': [satname] * len(waterlines_nir)
+                    },
+                    geometry=waterlines_nir,
+                    crs=crs_raster
+                )
                 out_nir = os.path.join(nir_dir, f"{fn_date}_{satname}_{roi}.geojson")
-                gdf_n = utm_to_wgs84_df(gdf_n)
+                gdf_n = gdf_n.to_crs("EPSG:4326")
                 gdf_n = split_line(gdf_n, 'LineString', smooth=True)
                 gdf_n.to_file(out_nir)
                 logger.info("Saved NIR shorelines → %s", out_nir)
-            except:
+            except Exception:
                 logger.exception("Failed saving NIR → %s", image)
 
             # SWIR
-            if satname != 'PS' and len(waterlines_swir)>0:
+            if satname != 'PS' and len(waterlines_swir) > 0:
                 try:
                     gdf_s = gpd.GeoDataFrame(
-                        {'dates':[fn_date]*len(waterlines_swir),
-                         'image_suitability_score':shore_img_swir,
-                         'segmentation_suitability_score':shore_seg_swir,
-                         'satname':[satname]*len(waterlines_swir)},
-                        geometry=waterlines_swir, crs=crs)
+                        {
+                            'dates': [fn_date] * len(waterlines_swir),
+                            'image_suitability_score': shore_img_swir,
+                            'segmentation_suitability_score': shore_seg_swir,
+                            'satname': [satname] * len(waterlines_swir)
+                        },
+                        geometry=waterlines_swir,
+                        crs=crs_raster
+                    )
                     out_s = os.path.join(swir_dir, f"{fn_date}_{satname}_{roi}.geojson")
-                    gdf_s = utm_to_wgs84_df(gdf_s)
+                    gdf_s = gdf_s.to_crs("EPSG:4326")
                     gdf_s = split_line(gdf_s, 'LineString', smooth=True)
                     gdf_s.to_file(out_s)
                     logger.info("Saved SWIR shorelines → %s", out_s)
-                except:
+                except Exception:
                     logger.exception("Failed saving SWIR → %s", image)
 
             # Mark processed + write CSV
@@ -6169,14 +6193,7 @@ def extract_shorelines_after_segmentation_section(g, c, rr, sss, r_home, reset=F
     # END LOOP
     # --------------------------------------------------------------------------------------
 
-    try:
-        df.to_csv(csv_out, index=False)
-    except:
-        logger.exception("Final CSV write failed → %s", csv_out)
 
-    logger.info(
-        "Summary: rows=%d, processed=%d, already_done=%d, low=%d, missing=%d, errors=%d → %s",
-        nrows, processed, already_done, skipped_score, skipped_missing, errors, csv_out)
 
 def concat_gdfs_in_folder(folder):
     """
